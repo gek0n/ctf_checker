@@ -1,0 +1,2 @@
+SCHTASKS /Delete /TN "CTF_CHECKER" /F
+pause
