@@ -26,7 +26,7 @@ flag_new_time = False
 flag_new_team = False
 new_games = []
 change_time = []
-old = cPickle.loads(open('C:\\ctf_checker\\upcoming_ctf.txt','r').read())
+old = cPickle.loads(open('upcoming_ctf.txt','r').read())
 for i in new.keys():
     if i in old.keys():
         if old[i][0] != new[i][0]:
@@ -38,15 +38,15 @@ for i in new.keys():
         flag_new_game = True
         new_games.append(i)
 
-open('C:\\ctf_checker\\upcoming_ctf.txt','w').write(cPickle.dumps(new))
+open('upcoming_ctf.txt','w').write(cPickle.dumps(new))
 if flag_new_game:
     teams = "\n".join(i for i in new_games)
-    sound = winsound.PlaySound('C:\\ctf_checker\\wav_phrases\\new_game_phrase.wav', winsound.SND_FILENAME)
+    sound = winsound.PlaySound('wav_phrases\\new_game_phrase.wav', winsound.SND_FILENAME)
     Mbox(u"Внимание", u"Новые игры:\n" + teams, 0)
 if flag_new_time:
     teams = "\n".join(i for i in change_time)
-    sound = winsound.PlaySound('C:\\ctf_checker\\wav_phrases\\new_time_phrase.wav', winsound.SND_FILENAME)
+    sound = winsound.PlaySound('wav_phrases\\new_time_phrase.wav', winsound.SND_FILENAME)
     Mbox(u"Внимание", u"Измененилось время:\n" + teams, 0)
 if flag_new_team:
-    sound = winsound.PlaySound('C:\\ctf_checker\\wav_phrases\\new_teams_phrase.wav', winsound.SND_FILENAME)
+    sound = winsound.PlaySound('wav_phrases\\new_teams_phrase.wav', winsound.SND_FILENAME)
     #Mbox(u"Внимание", u"Новые команды подтвердили участие", 0)
