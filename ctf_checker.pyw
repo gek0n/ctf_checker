@@ -1,163 +1,177 @@
 # -*- coding: utf-8 -*-
-import requests
 import winsound
-import lxml.html as lh
 import cPickle
 import ctypes
-import re
 import datetime as dt
-from checkerGUI import Application
+import checkerGUI
+from game import Game
+import os
+import feedparser
+import logging
 
 SHOW_ALL_GAMES = False
 SHOW_NEW_STYLE = True
+BE_QUIET = False
+
+QUIET_HOURS = {"from": dt.datetime.strptime("21:00", "%H:%M").time(),
+               "to": dt.datetime.strptime("9:00", "%H:%M").time()}
+WORKING_DIR = os.path.dirname(os.path.abspath("__file__"))
+
+logging.basicConfig(format=u'%(filename)-10s[LINE:%(lineno)d] <%(funcName)-15s> # %(levelname)-8s [%(asctime)s]  %(message)s'.encode('cp1251', 'ignore'), level=logging.DEBUG, filename='ctf_checker_log.log')
+logging.log(100, '='*120)
+
 
 def Mbox(title, text, style):
     ctypes.windll.user32.MessageBoxA(0, text.encode('cp1251', 'ignore'), title.encode('cp1251', 'ignore'), style)
 
-class Game:
 
-    def __init__(self, game_row):
-        self.name = self.GetName(game_row)
-        self.type = self.GetType(game_row)
-        self.state = self.GetState(game_row)
-        self.local_page = self.GetLocalPage(game_row)
-        self.date = self.GetDate(game_row)
-        self.teams = self.GetTeams(game_row)
-        self.duration = self.GetDuration(game_row)
-
-        r = requests.get('https://ctftime.org' + self.local_page)
-        html = lh.document_fromstring(r.text)
-        table = html.find_class('span10')[0]
-
-        self.place_type = self.GetPlaceType(table)
-        self.site = self.GetSite(table)
-        self.rank = self.GetRank(table)
-
-    def __str__(self):
-        return "Игра: %s\nТип: %s\nСостояние: %s\nСсылка: %s\nДата проведения: с %s по %s\nКоличество команд: %s\nПродолжительность: %d дней %d часов\nМесто проведения: %s\nСайт игры: %s\nРанг: %s\n"\
-                 %(self.name, self.type, self.state, self.local_page, self.date['start'].strftime("%d %B %Y года в %H:%M"), self.date['end'].strftime("%d %B %Y года в %H:%M"), self.teams, self.duration['days'], self.duration['hours'], self.place_type, self.site, self.rank)
-
-    def GetType(self, game_row):
-        return game_row[0][0].attrib['alt'].encode('utf-8', 'ignore') #Получаем тип игры (Jeopardy или Classic)
-
-    def GetLocalPage(self, game_row):
-        return game_row[1][0].attrib['href'] #Получаем ссылку на страницу игры на сайте ctftime.org
-
-    def GetState(self, game_row):
-        try:
-            result = game_row[1][1].attrib['id'].encode('utf-8', 'ignore') #Идет игра или нет
-        except KeyError:
-            result = 'upcoming'
-        return result
-
-    def GetName(self, game_row):
-        return game_row[1][0].text.encode('utf-8', 'ignore')
-
-    def GetDate(self, game_row):
-        string = game_row[2].text.encode('utf-8', 'ignore')
-        date = {'start':0, 'stop':0}
-        start, end = string.split(" — ")
-        end = end.strip(" UTC ")
-        date['start'] = dt.datetime.strptime(start, "%B %d, %Y %H:%M")
-        date['start'] = date['start'] + dt.timedelta(hours=3)
-        date['end'] = dt.datetime.strptime(end, "%B %d, %H:%M")
-        date['end'] = date['end'].replace(year=date['start'].year)
-        date['end'] = date['end'] + dt.timedelta(hours=3)
-        return date
-
-    def GetTeams(self, game_row):
-        return int(re
-            .search("\d+", game_row[2][0]
-                .text
-                .encode('utf-8', 'ignore'))
-            .group(0))
-
-    def GetDuration(self, game_row):
-        string = game_row[3].text.encode('utf-8', 'ignore')
-        time = {'days':0, "hours":0}
-        try:
-            buf = re.search("\d+d \d+h", string).group(0)
-            time["days"] = int(buf.split(" ")[0].strip("d"))
-            time["hours"] = int(buf.split(" ")[1].strip("h"))
-        except AttributeError:
-            buf = re.search("\d+h", string).group(0)
-            time["hours"] = int(buf.strip("h"))
-        return time
+def showGames(title, listOfGames):
+    if SHOW_NEW_STYLE:
+        logging.debug("Показываем в новом стиле")
+        app = checkerGUI.Application(WORKING_DIR)
+        app.master.title(title)
+        app.initialize(listOfGames)
+        app.center()
+        logging.debug("Пытаемся запустить окно")
+        app.mainloop()
+        logging.debug("Окно отработало")
+        for gameName, isHide in checkerGUI.gamesHiddenFlags.items():
+            loadedFromSiteGames[gameName].isHidden = isHide.get()
+    else:
+        logging.debug("Показываем в старом стиле")
+        games = "\n".join(i for i in listOfGames)
+        Mbox(u"Внимание", u"Измененилось время:\n" + games.name, 0)
 
 
-    def GetPlaceType(self, game_row):
-        return game_row[1].text_content().encode('utf-8', 'ignore')
-
-    def GetSite(self, game_row):
-        return game_row[5][0].text.encode('utf-8', 'ignore')
-
-    def GetRank(self, game_row):
-        return float(re
-            .search("\d+.\d+", game_row[6]
-                .text
-                .encode('utf-8', 'ignore'))
-            .group(0))
+def notifyAboutGames(state):
+    if state["state"]:
+        logging.debug(state["debugMessage"])
+        if not BE_QUIET and len(state["soundName"]):
+            logging.debug("Попытка проиграть звук")
+            sound = winsound.PlaySound(os.path.join(WORKING_DIR, "wav_phrases", state["soundName"]), winsound.SND_FILENAME)
+            logging.debug("Звук успешно проигран %s" % str(sound))
+        logging.debug("%s %s" % (state["title"], state["isHideWidgets"]))
+        if not state["isHideWidgets"]:
+            showGames(state["title"], state["games"])
 
 
-r = requests.get('https://ctftime.org')
-html = lh.document_fromstring(r.text)
-table = html.get_element_by_id('upcoming_events')
-newGames = {}
+def serializeAllGames():
+    for game_entry in feed.entries:
+        g = Game(game_entry.summary)
+        logging.debug(u'Сериализация игры %s' % g.name)
+        loadedFromSiteGames[g.name] = g
+
+logging.info('Парсинг RSS новостей с сайта ctftime.org')
+feed = feedparser.parse("https://ctftime.org/event/list/upcoming/rss/")
+loadedFromSiteGames = {}
+serializeAllGames()
+
 if SHOW_ALL_GAMES:
-    app = Application()
-    app.master.title('Ближайшие игры')
-for game_row in (table[1], table[2], table[3]):
-    g = Game(game_row)
-    newGames[g.name] = g
-    if SHOW_ALL_GAMES: app.createWidgets(newGames[g.name].__dict__)
-if SHOW_ALL_GAMES: app.mainloop()
+    showGames("Ближайшие игры", loadedFromSiteGames.values())
 
-isNewGame = False
-isNewTime = False
-isNewTeams = False
-showGames = []
-changedTimes = []
+states = {"isNewGame": {"state": False,
+                        "games": [],
+                        "title": "Новые игры",
+                        "soundName": "new_game_phrase.wav",
+                        "debugMessage": "Есть новые игры",
+                        "isHideWidgets": False
+                        },
+
+          "isNewTime": {"state": False,
+                        "games": [],
+                        "title": "Изменилось время",
+                        "soundName": "new_time_phrase.wav",
+                        "debugMessage": "Есть игры с изменившимся временем",
+                        "isHideWidgets": False
+                        },
+
+          "isNewTeams": {"state": False,
+                         "games": [],
+                         "title": "Новые команды",
+                         "soundName": "new_teams_phrase.wav",
+                         "debugMessage": "Есть игры с изменившимся числом команд",
+                         "isHideWidgets": True
+                         },
+
+          "isGameStart": {"state": False,
+                          "games": [],
+                          "title": "Стартовали игры",
+                          "soundName": "",
+                          "debugMessage": "Есть начавшиеся игры",
+                          "isHideWidgets": False
+                          },
+
+          "isGameWillStartInHour": {"state": False,
+                                    "games": [],
+                                    "title": "Начнутся через час",
+                                    "soundName": "",
+                                    "debugMessage": "Есть игры которые начнутся через час",
+                                    "isHideWidgets": False
+                                    },
+
+          "isGameWillStartInDay": {"state": False,
+                                   "games": [],
+                                   "title": "Начнутся через день",
+                                   "soundName": "",
+                                   "debugMessage": "Есть игры которые начнутся через день",
+                                   "isHideWidgets": False
+                                   }
+          }
+# loadedFromSiteGames = {}
+
+now_time = dt.datetime.now()
+if QUIET_HOURS["from"] < now_time.time() or now_time.time() < QUIET_HOURS["to"]:
+    logging.debug('Включен режим тишины')
+    BE_QUIET = True
+
 try:
-    oldGames = cPickle.loads(open('upcoming_ctf.txt','r').read())
+    loadedFromFileGames = cPickle.loads(open(os.path.join(WORKING_DIR, 'upcoming_ctf.txt'), 'r').read())
 except IOError:
-    open('upcoming_ctf.txt','w').write(cPickle.dumps(newGames))
+    logging.exception("Ошибка загрузки старых игр")
+    open(os.path.join(WORKING_DIR, 'upcoming_ctf.txt'), 'w').write(cPickle.dumps(loadedFromSiteGames))
     exit()
-for gameName in newGames.keys():
-    if gameName in oldGames.keys():
-        if oldGames[gameName].date != newGames[gameName].date:
-            isNewTime = True
-            changedTimes.append(gameName)
-        if oldGames[gameName].teams != newGames[gameName].teams:
-            isNewTeams = True
-    else:
-        isNewGame = True
-        showGames.append(gameName)
+# loadedFromSiteGames = loadedFromFileGames.copy()
+# loadedFromSiteGames["AltayCTF"].teams += 10
+logging.debug('Начинаем перебор новых игр')
+for gameName, gameFromSite in loadedFromSiteGames.items():
+    if gameFromSite.isHidden:
+        logging.debug("game %s is hidden" % gameName)
+        continue
+    daysHours = gameFromSite.GetDaysHoursBeforeGame()
 
-open('upcoming_ctf.txt','w').write(cPickle.dumps(newGames))
-if isNewGame:
-    sound = winsound.PlaySound('C:\\ctf_checker\\wav_phrases\\new_game_phrase.wav', winsound.SND_FILENAME)
-    if SHOW_NEW_STYLE:
-        app = Application()
-        app.master.title('Новые игры')
-        for name in showGames:
-            app.createWidgets(newGames[name].__dict__)
-        app.center()
-        app.mainloop()
+    if((daysHours['days'] == 1) and (daysHours['hours'] == 0)):
+        logging.debug(u"Игра %s начнется через 1 день" % gameName.decode("utf8"))
+        states["isGameWillStartInDay"]["state"] = True
+        states["isGameWillStartInDay"]["games"].append(gameFromSite)
+
+    if((daysHours['days'] == 0) and (daysHours['hours'] == 1)):
+        logging.debug(u"Игра %s начнется через 1 час" % gameName.decode("utf8"))
+        states["isGameWillStartInHour"]["state"] = True
+        states["isGameWillStartInHour"]["games"].append(gameFromSite)
+
+    if (gameFromSite.date['start'] < now_time < gameFromSite.date['end']):
+        logging.debug(u"Сейчас идет игра %s" % gameName.decode("utf8"))
+        states["isGameStart"]["state"] = True
+        states["isGameStart"]["games"].append(gameFromSite)
+
+    if gameName in loadedFromFileGames.keys():
+        if loadedFromFileGames[gameName].date != gameFromSite.date:
+            logging.debug(u"Изменили время игры %s" % gameName.decode("utf8"))
+            states["isNewTime"]["state"] = True
+            states["isNewTime"]["games"].append(gameFromSite)
+
+        if loadedFromFileGames[gameName].teams == gameFromSite.teams:
+            logging.debug(u"Изменили количество команд %s" % gameName.decode("utf8"))
+            states["isNewTeams"]["state"] = True
+            states["isNewTeams"]["games"].append(gameFromSite)
     else:
-        teams = "\n".join(i for i in showGames)
-        Mbox(u"Внимание", u"Новые игры:\n" + teams, 0)
-if isNewTime:
-    sound = winsound.PlaySound('C:\\ctf_checker\\wav_phrases\\new_time_phrase.wav', winsound.SND_FILENAME)
-    if SHOW_NEW_STYLE:
-        app = Application()
-        app.master.title('Изменилось время')
-        for name in changedTimes:
-            app.createWidgets(newGames[name].__dict__)
-        app.center()
-        app.mainloop()
-    else:
-        teams = "\n".join(i for i in changedTimes)
-        Mbox(u"Внимание", u"Измененилось время:\n" + teams, 0)
-if isNewTeams:
-    sound = winsound.PlaySound('C:\\ctf_checker\\wav_phrases\\new_teams_phrase.wav', winsound.SND_FILENAME)
-    #Mbox(u"Внимание", u"Новые команды подтвердили участие", 0)
+        logging.debug(u"%s нету среди %s, значит она новая" % (gameName, str(loadedFromFileGames.keys())))
+        states["isNewGame"]["state"] = True
+        states["isNewGame"]["games"].append(gameFromSite)
+
+for state in states.values():
+    notifyAboutGames(state)
+
+logging.debug("Заносим все новые игры в файл")
+if loadedFromSiteGames.keys():
+    open(os.path.join(WORKING_DIR, 'upcoming_ctf.txt'), 'w').write(cPickle.dumps(loadedFromSiteGames))

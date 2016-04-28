@@ -1,26 +1,38 @@
-﻿import Tkinter as tk
+﻿# -*- coding: utf-8 -*-
+import Tkinter as tk
 import tkFont
 import webbrowser
+import os
 from PIL import ImageTk, Image
+import ctypes
+
+
+def Mbox(title, text, style):
+    ctypes.windll.user32.MessageBoxA(0, text.encode('cp1251', 'ignore'), title.encode('cp1251', 'ignore'), style)
+
 
 class Application(tk.Frame):
-    def __init__(self, master=None):
+
+    def __init__(self, pwd="", master=None):
         tk.Frame.__init__(self, master)
-        self.initImages()
+        self.initImages(pwd)
         self.master.resizable(width=False, height=False)
         self.index = 0
         self.master.bind("<Return>", self.close)
         self.grid()
+        self.games = []
+        global gamesHiddenFlags
+        gamesHiddenFlags = {}
 
     def close(self, event):
         self.master.destroy()
 
-    def center(self): #Stolen from http://stackoverflow.com/questions/3352918/how-to-center-a-window-on-the-screen-in-tkinter
+    def center(self):  # Stolen from http://stackoverflow.com/questions/3352918/how-to-center-a-window-on-the-screen-in-tkinter
         """
         centers a tkinter window
         """
         win = self.master
-        win.minsize(100,100)
+        win.minsize(100, 100)
         win.update_idletasks()
         width = win.winfo_width()
         frm_width = win.winfo_rootx() - win.winfo_x()
@@ -33,21 +45,33 @@ class Application(tk.Frame):
         win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
         win.deiconify()
 
-    def initImages(self):
+    def initialize(self, games):
+        self.games = games
+        for game in self.games:
+            gamesHiddenFlags[game.name] = tk.BooleanVar()
+            self.createWidgetsFromGame(game, gamesHiddenFlags[game.name])
+
+    def addGame(self, game):
+        self.games.append(game)
+
+    def addGames(self, listOfGames):
+        self.games.extend(listOfGames)
+
+    def initImages(self, path):
         self.images = {}
-        buf = Image.open(r"images\Classic.png")
-        buf = buf.resize((20, 20), Image.ANTIALIAS) #The (250, 250) is (height, width)
+        buf = Image.open(os.path.join(path, "images", "Classic.png"))
+        buf = buf.resize((20, 20), Image.ANTIALIAS)  # The (250, 250) is (height, width)
         self.images['Classic'] = ImageTk.PhotoImage(buf)
 
-        buf = Image.open(r"images\Jeopardy.png")
+        buf = Image.open(os.path.join(path, "images", "Jeopardy.png"))
         buf = buf.resize((20, 20), Image.ANTIALIAS)
         self.images['Jeopardy'] = ImageTk.PhotoImage(buf)
 
-        buf = Image.open(r"images\On-site.png")
+        buf = Image.open(os.path.join(path, "images", "On-site.png"))
         buf = buf.resize((20, 20), Image.ANTIALIAS)
         self.images['On-site'] = ImageTk.PhotoImage(buf)
 
-        buf = Image.open(r"images\On-line.png")
+        buf = Image.open(os.path.join(path, "images", "On-line.png"))
         buf = buf.resize((20, 20), Image.ANTIALIAS)
         self.images['On-line'] = ImageTk.PhotoImage(buf)
 
@@ -55,13 +79,19 @@ class Application(tk.Frame):
         webbrowser.open_new(site)
 
     def ShowImages(self, frame_in, type_img, place_img):
+        type_img = type_img.replace("Attack-Defense", "Classic").replace("Attack", "Classic")
+        type_img = type_img.replace("Hack quest", "Jeopardy")
         label = tk.Label(frame_in, image=self.images[type_img])
         label.pack(side="right")
 
         label = tk.Label(frame_in, image=self.images[place_img])
         label.pack(side="right")
 
-    def createWidgets(self, dict_of_data):
+    def createRow(self, frame, t, h, i):
+        header = tk.Label(frame, anchor="nw", justify="left", text=t, height=h)
+        header.grid(row=i, sticky="WE", column=self.index)
+
+    def createWidgetsFromGame(self, game, flag):
         frame = tk.Frame(self, relief='sunken')
         frame.grid(row=0, column=self.index, sticky="WN")
         frame_in = tk.Frame(frame)
@@ -70,48 +100,46 @@ class Application(tk.Frame):
         header = tk.Label(frame_in, anchor="nw", justify="left", text="Игра: ")
         header.pack(expand=True, fill="x", side="left")
 
-        self.ShowImages(frame_in, dict_of_data["type"], dict_of_data["place_type"])
+        self.ShowImages(frame_in, game.type, game.place_type)
 
-        header = tk.Label(frame, anchor="nw", justify="left", text="Состояние: ")
-        header.grid(row=1, sticky="WE", column=self.index)
+        self.createRow(frame, "Состояние: ", 1, 1)
 
-        header = tk.Label(frame, anchor='nw', justify="left", text="Дата проведения: ", height=2)
-        header.grid(row=3, sticky="WEN", column=self.index)
+        self.createRow(frame, "Дата проведения: ", 2, 3)
 
-        header = tk.Label(frame, anchor="nw", justify="left", text="Продолжительность: ")
-        header.grid(row=5, sticky="WE", column=self.index)
+        self.createRow(frame, "Продолжительность: ", 1, 5)
 
-        header = tk.Label(frame, anchor="nw", justify="left", text="Сайт игры: ")
-        header.grid(row=6, sticky="WE", column=self.index)
+        self.createRow(frame, "Сайт игры: ", 1, 6)
 
-        header = tk.Label(frame, anchor="nw", justify="left", text="Ранг: ")
-        header.grid(row=7, sticky="WE", column=self.index)
+        self.createRow(frame, "Ранг: ", 1, 7)
+
+        header = tk.Checkbutton(frame, text="Не показывать: ", variable=flag)
+        header.grid(row=8, sticky="WE", column=self.index)
 
         self.index += 1
 
         frame2 = tk.Frame(self, relief='sunken')
         frame2.grid(row=0, column=self.index, sticky="WN")
 
-        header = tk.Label(frame2, anchor="nw", justify="left", text=dict_of_data["name"])
+        header = tk.Label(frame2, anchor="nw", justify="left", text=game.name)
         header.grid(row=0, sticky="WE", column=self.index)
 
-        header = tk.Label(frame2, anchor="nw", justify="left", text=dict_of_data["state"])
+        header = tk.Label(frame2, anchor="nw", justify="left", text=game.state)
         header.grid(row=1, sticky="WE", column=self.index)
 
-        header = tk.Label(frame2, anchor="nw", justify="left", text=dict_of_data["date"]['start'].strftime("с %d %B в %H:%M"))
+        header = tk.Label(frame2, anchor="nw", justify="left", text=game.date['start'].strftime("с %d %B в %H:%M"))
         header.grid(row=2, sticky="WE", column=self.index)
 
-        header = tk.Label(frame2, anchor="nw", justify="left", text=dict_of_data["date"]['end'].strftime("до %d %B в %H:%M"))
+        header = tk.Label(frame2, anchor="nw", justify="left", text=game.date['end'].strftime("до %d %B в %H:%M"))
         header.grid(row=3, sticky="WE", column=self.index)
 
-        header = tk.Label(frame2, anchor="nw", justify="left", text="%d дней %d часов" %(dict_of_data["duration"]['days'], dict_of_data["duration"]['hours']))
+        header = tk.Label(frame2, anchor="nw", justify="left", text="%d дней %d часов" % (game.duration['days'], game.duration['hours']))
         header.grid(row=4, sticky="WE", column=self.index)
 
-        header = tk.Label(frame2, anchor="nw", justify="left", fg='blue', font=tkFont.Font(underline=1, size=10), cursor="hand2", text=dict_of_data["site"])
-        header.bind("<Button-1>", lambda e:self.google_link_callback(dict_of_data["site"]))
+        header = tk.Label(frame2, anchor="nw", justify="left", fg='blue', font=tkFont.Font(underline=1, size=10), cursor="hand2", text=game.site)
+        header.bind("<Button-1>", lambda e: self.google_link_callback(game.site))
         header.grid(row=5, sticky="WE", column=self.index)
 
-        header = tk.Label(frame2, anchor="nw", justify="left", text=dict_of_data["rank"])
+        header = tk.Label(frame2, anchor="nw", justify="left", text=game.rank)
         header.grid(row=6, sticky="WE", column=self.index)
 
         self.index += 1
@@ -119,5 +147,4 @@ class Application(tk.Frame):
 if __name__ == "__main__":
     app = Application()
     app.master.title('Sample application')
-    app.createWidgets({'name':"Человек АНТОН", 'state':"", "type":"", "date":{"start":"", 'end':""}, 'duration':{'days':'', 'hours':''}, 'site':'', 'rank':''})
     app.mainloop()
